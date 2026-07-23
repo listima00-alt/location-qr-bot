@@ -1,186 +1,185 @@
-import logging
-import qrcode
-import io
+import os
 import requests
+import qrcode
+from io import BytesIO
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    filters,
+)
 
-# Logging setup
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+# ----------------- CONFIGURATION -----------------
+TELEGRAM_BOT_TOKEN = "7916298583:AAHhJk8O6L_O5i8L_U9B81J2G2g"  # Apna Token Yahan Check Kar Lena
+TMDB_API_KEY = "388db44a86782a4d952a22be14bd2db1"              # TMDB API Key
+INSTAGRAM_USERNAME = "vacio.__x"
+INSTAGRAM_PROFILE_URL = f"https://www.instagram.com/{INSTAGRAM_USERNAME}/"
+OWNER_NAME = "Tajdar"
+# -------------------------------------------------
 
-# ==================== CONFIGURATION ====================
-TELEGRAM_BOT_TOKEN = "8705116326:AAHKAtaGKPOEWnw-KlkdX6EPf_W_3vizsHE"
-TMDB_API_KEY = "8415442e3f538e14e1f76d91f24d3a1f"  # Free TMDB Key
 
-# 👑 Tajdar Bhai Details & Instagram Link
-OWNER_NAME = "Tajdar"  
-INSTAGRAM_PROFILE_URL = "https://www.instagram.com/vacio.__x?igsh=MWtlczUwYjducG9j"
-# ========================================================
-
-# Users ka Follow verification state track karne ke liye
-USER_VERIFIED = set()
-
-def get_follow_keyboard():
-    keyboard = [
-        [InlineKeyboardButton("📸 Follow Tajdar on Instagram", url=INSTAGRAM_PROFILE_URL)],
-        [InlineKeyboardButton("🔓 Verify / Unlock Bot", callback_data="check_follow")]
-    ]
-    return InlineKeyboardMarkup(keyboard)
-
-async def check_user_access(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+# Helper function to check/force Instagram restriction
+async def check_instagram_lock(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user_id = update.effective_user.id
-    if user_id in USER_VERIFIED:
-        return True
+    is_verified = context.user_data.get("insta_verified", False)
 
-    text = (
-        f"🔒 **Bot Is Locked!**\n\n"
-        f"Hello {update.effective_user.first_name}! Is bot ko use karne ke liye aapko pehle **{OWNER_NAME}** ko Instagram par follow karna zaroori hai.\n\n"
-        f"1️⃣ Niche diye gaye **Instagram** button par click karke follow karein.\n"
-        f"2️⃣ Follow karne ke baad **Verify / Unlock Bot** button dabaaein."
-    )
-    
-    if update.message:
-        await update.message.reply_text(text, parse_mode="Markdown", reply_markup=get_follow_keyboard())
-    return False
+    if not is_verified:
+        keyboard = [
+            [InlineKeyboardButton("👉 Follow Instagram Profile 👈", url=INSTAGRAM_PROFILE_URL)],
+            [InlineKeyboardButton("✅ Unlocked / Verified", callback_data="verify_follow")],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
-# Verification Callback Handler
-async def verify_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_id = query.from_user.id
-    await query.answer()
+        text = (
+            f"⚠️ **Access Restricted!** ⚠️\n\n"
+            f"Tajdar's Bot ko use karne ke liye pehle Instagram par **@{INSTAGRAM_USERNAME}** ko follow karein!\n\n"
+            f"1️⃣ Upar link par click karke follow karein.\n"
+            f"2️⃣ Phir **Unlocked / Verified** button par tap karein."
+        )
 
-    USER_VERIFIED.add(user_id)
+        if update.message:
+            await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
+        elif update.callback_query:
+            await update.callback_query.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
+        return False
+    return True
 
-    success_text = (
-        f"🎉 **Thank You For Following!**\n\n"
-        f"Aapka Bot unlock ho gaya hai! Ab aap Tajdar ke Super Bot ke features use kar sakte hain:\n\n"
-        f"📸 **QR Code:** Koi bhi text ya link bhejye.\n"
-        f"🍿 **Movie Search:** `/movie [movie name]` likhein."
-    )
-    
-    keyboard = [[InlineKeyboardButton(f"👑 Bot Owner: {OWNER_NAME}", url=INSTAGRAM_PROFILE_URL)]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await query.edit_message_text(success_text, parse_mode="Markdown", reply_markup=reply_markup)
-
-# Start Command
+# Start Command Handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_user_access(update, context):
+    if not await check_instagram_lock(update, context):
         return
 
     welcome_text = (
-        f"👋 **Welcome to Tajdar's Super Bot!**\n\n"
-        f"📸 **QR Code Banane ke liye:** Koi bhi text ya link bhejye.\n"
-        f"🍿 **Movie Search ke liye:** `/movie [movie name]` likhein.\n"
-        f"   *(Example: `/movie Pushpa 2`)*\n\n"
-        f"👑 **Bot Owner:** [{OWNER_NAME}]({INSTAGRAM_PROFILE_URL})"
+        f"👑 **Welcome to {OWNER_NAME}'s Bot!** 👑\n\n"
+        f"Aapka Instagram verification ho chuka hai. ✨\n\n"
+        f"📌 **Aap kya kar sakte hain:**\n"
+        f"1. **QR Code Generator:** Mujhe koi bhi Text ya Link bhejo, main uska QR Code bana dunga.\n"
+        f"2. **Movie Search:** Type karein `/movie <Movie Name>` (e.g., `/movie Pushpa 2`)\n\n"
+        f"🔥 **Owner Profile:** [{OWNER_NAME}]({INSTAGRAM_PROFILE_URL})"
     )
-    
-    keyboard = [[InlineKeyboardButton(f"👑 Developer: {OWNER_NAME}", url=INSTAGRAM_PROFILE_URL)]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(welcome_text, parse_mode="Markdown", reply_markup=reply_markup, disable_web_page_preview=True)
+    await update.message.reply_text(welcome_text, parse_mode="Markdown", disable_web_page_preview=True)
 
-# 1. QR Code Generator Function
-async def generate_qr(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_text = update.message.text
 
-    if user_text.lower().startswith("/movie"):
+# Verification Callback Button
+async def verify_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    context.user_data["insta_verified"] = True
+    await query.message.edit_text(
+        "🎉 **Verification Successful!** 🎉\n\n"
+        "Aapka access unlock ho gaya hai. Ab aap bot chala sakte hain!\n"
+        "Type karein `/start` ya koi bhi link/text bhej kar dekhein.",
+        parse_mode="Markdown"
+    )
+
+
+# QR Code Generator Handler
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_instagram_lock(update, context):
         return
 
-    if not await check_user_access(update, context):
-        return
+    text = update.message.text
+    status_msg = await update.message.reply_text("⏳ Generating QR Code...")
 
-    status_msg = await update.message.reply_text("⏳ Aapka QR code ban raha hai...")
-
-    qr = qrcode.QRCode(version=1, box_size=10, border=4)
-    qr.add_data(user_text)
+    # Generate QR Code in memory
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(text)
     qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
 
-    bio = io.BytesIO()
+    img = qr.make_image(fill_color="black", back_color="white")
+    bio = BytesIO()
     bio.name = 'qrcode.png'
     img.save(bio, 'PNG')
     bio.seek(0)
 
-    caption = (
-        f"✅ **Aapka QR Code Tayar Hai!**\n\n"
-        f"🛠️ **Powered By:** [{OWNER_NAME}]({INSTAGRAM_PROFILE_URL})"
-    )
-    
-    keyboard = [[InlineKeyboardButton(f"👑 Bot Owner: {OWNER_NAME}", url=INSTAGRAM_PROFILE_URL)]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
     await status_msg.delete()
-    await update.message.reply_photo(photo=bio, caption=caption, parse_mode="Markdown", reply_markup=reply_markup)
+    await update.message.reply_photo(
+        photo=bio,
+        caption=f"✅ **QR Code Generated Successfully!**\n\n👑 **Owner:** [{OWNER_NAME}]({INSTAGRAM_PROFILE_URL})",
+        parse_mode="Markdown"
+    )
 
-# 2. Movie Downloader Function (/movie Name)
+
+# Movie Search Handler (TMDB)
 async def search_movie(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_user_access(update, context):
+    if not await check_instagram_lock(update, context):
         return
 
-    query = " ".join(context.args)
-    
-    if not query:
-        await update.message.reply_text("❌ Kripya movie ka naam bhi likhein!\nExample: `/movie Jawan`", parse_mode="Markdown")
+    if not context.args:
+        await update.message.reply_text("⚠️ **Format:** `/movie <Movie Name>`\n\n*Example:* `/movie Pushpa 2`", parse_mode="Markdown")
         return
 
-    status_msg = await update.message.reply_text("🍿 Movie dhoond raha hu, bas 2 second...")
+    query_text = " ".join(context.args)
+    url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={query_text}"
 
-    url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={query}"
-    response = requests.get(url).json()
-    results = response.get('results', [])
+    try:
+        response = requests.get(url).json()
+        results = response.get("results")
 
-    if not results:
-        await status_msg.edit_text("❌ Maf karna, ye movie nahi mili! Spelling check karke dobara try karein.")
-        return
+        if not results:
+            await update.message.reply_text("❌ Koi movie nahi mili! Sahi spelling likhein.")
+            return
 
-    movie = results[0]
-    title = movie.get('title', 'N/A')
-    overview = movie.get('overview', 'No description available.')
-    release_date = movie.get('release_date', 'N/A')
-    rating = movie.get('vote_average', 'N/A')
-    poster_path = movie.get('poster_path')
+        movie = results[0]
+        title = movie.get("title", "N/A")
+        overview = movie.get("overview", "No overview available.")
+        rating = movie.get("vote_average", "N/A")
+        release_date = movie.get("release_date", "N/A")
+        poster_path = movie.get("poster_path")
 
-    await status_msg.delete()
+        caption = (
+            f"🎬 **{title}**\n\n"
+            f"📅 **Release Date:** {release_date}\n"
+            f"⭐ **Rating:** {rating}/10\n\n"
+            f"📝 **Overview:**\n{overview[:300]}...\n\n"
+            f"👑 **Powered By:** [{OWNER_NAME}]({INSTAGRAM_PROFILE_URL})"
+        )
 
-    google_search_url = f"https://www.google.com/search?q=download+{title.replace(' ', '+')}+movie+full+hd"
-    telegram_search_url = f"https://t.me/s/{title.replace(' ', '_')}_movies"
-    youtube_trailer_url = f"https://www.youtube.com/results?search_query={title.replace(' ', '+')}+official+trailer"
+        keyboard = [
+            [InlineKeyboardButton("🎬 Watch Trailer (YouTube)", url=f"https://www.youtube.com/results?search_query={title}+trailer")],
+            [InlineKeyboardButton("👑 Bot Owner", url=INSTAGRAM_PROFILE_URL)]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
-    caption = (
-        f"🍿 **{title}** ({release_date[:4] if release_date != 'N/A' else 'N/A'})\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"⭐ **IMDb Rating:** `{rating}/10`\n"
-        f"📝 **Story:** {overview[:170]}...\n\n"
-        f"👑 **Powered By:** [{OWNER_NAME}]({INSTAGRAM_PROFILE_URL})\n"
-        f"👇 **Niche se download ya trailer dekhein:**"
-    )
+        if poster_path:
+            image_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
+            await update.message.reply_photo(photo=image_url, caption=caption, reply_markup=reply_markup, parse_mode="Markdown")
+        else:
+            await update.message.reply_text(caption, reply_markup=reply_markup, parse_mode="Markdown")
 
-    keyboard = [
-        [InlineKeyboardButton("🎬 Watch Trailer (YouTube)", url=youtube_trailer_url)],
-        [InlineKeyboardButton("📥 Fast Download (480p / 720p / 1080p)", url=google_search_url)],
-        [InlineKeyboardButton("🚀 Telegram Channel Direct Search", url=telegram_search_url)],
-        [InlineKeyboardButton(f"👑 Bot Owner: {OWNER_NAME}", url=INSTAGRAM_PROFILE_URL)]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    except Exception as e:
+        await update.message.reply_text("❌ Search karte me error aaya. Thodi der me try karein.")
 
-    if poster_path:
-        image_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
-        await update.message.reply_photo(photo=image_url, caption=caption, parse_mode="Markdown", reply_markup=reply_markup)
-    else:
-        await update.message.reply_text(caption, parse_mode="Markdown", reply_markup=reply_markup, disable_web_page_preview=True)
 
 def main():
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
+    # Handlers Setup
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("movie", search_movie))
-    app.add_handler(CallbackQueryHandler(verify_callback, pattern="^check_follow$"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, generate_qr))
+    app.add_handler(CallbackQueryHandler(verify_callback, pattern="^verify_follow$"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
     print("Tajdar's Insta-Protected Bot Live!")
     app.run_polling()
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     main()
