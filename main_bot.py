@@ -13,8 +13,8 @@ from telegram.ext import (
 )
 
 # ----------------- CONFIGURATION -----------------
-TELEGRAM_BOT_TOKEN = "7916298583:AAHhJk8O6L_O5i8L_U9B81J2G2g"  # Apna Token Yahan Check Kar Lena
-TMDB_API_KEY = "388db44a86782a4d952a22be14bd2db1"              # TMDB API Key
+TELEGRAM_BOT_TOKEN = "7913890604:AAHBJGee__kK1WUZsFJexKFRrKIlZ3OZZrQ"  # Updated New Token
+TMDB_API_KEY = "388db44a86782a4d952a22be14bd2db1"                       # TMDB API Key
 INSTAGRAM_USERNAME = "vacio.__x"
 INSTAGRAM_PROFILE_URL = f"https://www.instagram.com/{INSTAGRAM_USERNAME}/"
 OWNER_NAME = "Tajdar"
@@ -23,7 +23,6 @@ OWNER_NAME = "Tajdar"
 
 # Helper function to check/force Instagram restriction
 async def check_instagram_lock(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    user_id = update.effective_user.id
     is_verified = context.user_data.get("insta_verified", False)
 
     if not is_verified:
@@ -157,7 +156,7 @@ async def search_movie(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(caption, reply_markup=reply_markup, parse_mode="Markdown")
 
-    except Exception as e:
+    except Exception:
         await update.message.reply_text("❌ Search karte me error aaya. Thodi der me try karein.")
 
 
