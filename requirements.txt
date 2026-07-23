@@ -1,2 +1,4 @@
-pyTelegramBotAPI
-qrcode[pil]
+python-telegram-bot==20.7
+qrcode
+pillow
+requests
