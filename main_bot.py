@@ -1,107 +1,186 @@
-import os
-import time
-import telebot
+import logging
 import qrcode
+import io
+import requests
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
-# ================= CONFIGURATION =================
-BOT_TOKEN = "8705116326:AAHKAtaGKPOEWnw-KlkdX6EPf_W_3vizsHE"
-ALLOWED_CHAT_ID = 7230777890
+# Logging setup
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-DEVELOPER_NAME = "Taaj"
-# =================================================
+# ==================== CONFIGURATION ====================
+TELEGRAM_BOT_TOKEN = "8705116326:AAHKAtaGKPOEWnw-KlkdX6EPf_W_3vizsHE"
+TMDB_API_KEY = "8415442e3f538e14e1f76d91f24d3a1f"  # Free TMDB Key
 
-bot = telebot.TeleBot(BOT_TOKEN)
+# 👑 Tajdar Bhai Details & Instagram Link
+OWNER_NAME = "Tajdar"  
+INSTAGRAM_PROFILE_URL = "https://www.instagram.com/vacio.__x?igsh=MWtlczUwYjducG9j"
+# ========================================================
 
+# Users ka Follow verification state track karne ke liye
+USER_VERIFIED = set()
 
-@bot.message_handler(commands=['start', 'help'])
-def send_welcome(message):
-    if message.chat.id != ALLOWED_CHAT_ID:
-        bot.reply_to(message, f"⚠️ Access Denied! Chat ID `{message.chat.id}` authorized nahi hai.", parse_mode="Markdown")
-        return
+def get_follow_keyboard():
+    keyboard = [
+        [InlineKeyboardButton("📸 Follow Tajdar on Instagram", url=INSTAGRAM_PROFILE_URL)],
+        [InlineKeyboardButton("🔓 Verify / Unlock Bot", callback_data="check_follow")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+async def check_user_access(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    user_id = update.effective_user.id
+    if user_id in USER_VERIFIED:
+        return True
+
+    text = (
+        f"🔒 **Bot Is Locked!**\n\n"
+        f"Hello {update.effective_user.first_name}! Is bot ko use karne ke liye aapko pehle **{OWNER_NAME}** ko Instagram par follow karna zaroori hai.\n\n"
+        f"1️⃣ Niche diye gaye **Instagram** button par click karke follow karein.\n"
+        f"2️⃣ Follow karne ke baad **Verify / Unlock Bot** button dabaaein."
+    )
     
-    bot.reply_to(
-        message,
-        f"📍 **Welcome to Location QR Code Generator Bot!**\n"
-        f"👨‍💻 *Created by: {DEVELOPER_NAME}*\n\n"
-        "Mujhe aap:\n"
-        "1. Kisi jagah ka **Google Maps Link / Address** bhej sakte hain.\n"
-        "2. Telegram ka **Location Pin** share kar sakte hain.\n\n"
-        "Main turant scan-able QR Code banakar bhej dunga!",
-        parse_mode="Markdown"
+    if update.message:
+        await update.message.reply_text(text, parse_mode="Markdown", reply_markup=get_follow_keyboard())
+    return False
+
+# Verification Callback Handler
+async def verify_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    await query.answer()
+
+    USER_VERIFIED.add(user_id)
+
+    success_text = (
+        f"🎉 **Thank You For Following!**\n\n"
+        f"Aapka Bot unlock ho gaya hai! Ab aap Tajdar ke Super Bot ke features use kar sakte hain:\n\n"
+        f"📸 **QR Code:** Koi bhi text ya link bhejye.\n"
+        f"🍿 **Movie Search:** `/movie [movie name]` likhein."
+    )
+    
+    keyboard = [[InlineKeyboardButton(f"👑 Bot Owner: {OWNER_NAME}", url=INSTAGRAM_PROFILE_URL)]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text(success_text, parse_mode="Markdown", reply_markup=reply_markup)
+
+# Start Command
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_user_access(update, context):
+        return
+
+    welcome_text = (
+        f"👋 **Welcome to Tajdar's Super Bot!**\n\n"
+        f"📸 **QR Code Banane ke liye:** Koi bhi text ya link bhejye.\n"
+        f"🍿 **Movie Search ke liye:** `/movie [movie name]` likhein.\n"
+        f"   *(Example: `/movie Pushpa 2`)*\n\n"
+        f"👑 **Bot Owner:** [{OWNER_NAME}]({INSTAGRAM_PROFILE_URL})"
+    )
+    
+    keyboard = [[InlineKeyboardButton(f"👑 Developer: {OWNER_NAME}", url=INSTAGRAM_PROFILE_URL)]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(welcome_text, parse_mode="Markdown", reply_markup=reply_markup, disable_web_page_preview=True)
+
+# 1. QR Code Generator Function
+async def generate_qr(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_text = update.message.text
+
+    if user_text.lower().startswith("/movie"):
+        return
+
+    if not await check_user_access(update, context):
+        return
+
+    status_msg = await update.message.reply_text("⏳ Aapka QR code ban raha hai...")
+
+    qr = qrcode.QRCode(version=1, box_size=10, border=4)
+    qr.add_data(user_text)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+
+    bio = io.BytesIO()
+    bio.name = 'qrcode.png'
+    img.save(bio, 'PNG')
+    bio.seek(0)
+
+    caption = (
+        f"✅ **Aapka QR Code Tayar Hai!**\n\n"
+        f"🛠️ **Powered By:** [{OWNER_NAME}]({INSTAGRAM_PROFILE_URL})"
+    )
+    
+    keyboard = [[InlineKeyboardButton(f"👑 Bot Owner: {OWNER_NAME}", url=INSTAGRAM_PROFILE_URL)]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await status_msg.delete()
+    await update.message.reply_photo(photo=bio, caption=caption, parse_mode="Markdown", reply_markup=reply_markup)
+
+# 2. Movie Downloader Function (/movie Name)
+async def search_movie(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_user_access(update, context):
+        return
+
+    query = " ".join(context.args)
+    
+    if not query:
+        await update.message.reply_text("❌ Kripya movie ka naam bhi likhein!\nExample: `/movie Jawan`", parse_mode="Markdown")
+        return
+
+    status_msg = await update.message.reply_text("🍿 Movie dhoond raha hu, bas 2 second...")
+
+    url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={query}"
+    response = requests.get(url).json()
+    results = response.get('results', [])
+
+    if not results:
+        await status_msg.edit_text("❌ Maf karna, ye movie nahi mili! Spelling check karke dobara try karein.")
+        return
+
+    movie = results[0]
+    title = movie.get('title', 'N/A')
+    overview = movie.get('overview', 'No description available.')
+    release_date = movie.get('release_date', 'N/A')
+    rating = movie.get('vote_average', 'N/A')
+    poster_path = movie.get('poster_path')
+
+    await status_msg.delete()
+
+    google_search_url = f"https://www.google.com/search?q=download+{title.replace(' ', '+')}+movie+full+hd"
+    telegram_search_url = f"https://t.me/s/{title.replace(' ', '_')}_movies"
+    youtube_trailer_url = f"https://www.youtube.com/results?search_query={title.replace(' ', '+')}+official+trailer"
+
+    caption = (
+        f"🍿 **{title}** ({release_date[:4] if release_date != 'N/A' else 'N/A'})\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"⭐ **IMDb Rating:** `{rating}/10`\n"
+        f"📝 **Story:** {overview[:170]}...\n\n"
+        f"👑 **Powered By:** [{OWNER_NAME}]({INSTAGRAM_PROFILE_URL})\n"
+        f"👇 **Niche se download ya trailer dekhein:**"
     )
 
+    keyboard = [
+        [InlineKeyboardButton("🎬 Watch Trailer (YouTube)", url=youtube_trailer_url)],
+        [InlineKeyboardButton("📥 Fast Download (480p / 720p / 1080p)", url=google_search_url)],
+        [InlineKeyboardButton("🚀 Telegram Channel Direct Search", url=telegram_search_url)],
+        [InlineKeyboardButton(f"👑 Bot Owner: {OWNER_NAME}", url=INSTAGRAM_PROFILE_URL)]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
-@bot.message_handler(content_types=['location'])
-def handle_location_pin(message):
-    if message.chat.id != ALLOWED_CHAT_ID:
-        return
-
-    lat = message.location.latitude
-    lon = message.location.longitude
-    
-    maps_url = f"https://www.google.com/maps?q={lat},{lon}"
-    generate_and_send_qr(message, maps_url, f"📍 **Location Coordinates:**\n`Lat: {lat}, Lon: {lon}`")
-
-
-@bot.message_handler(func=lambda message: True)
-def handle_text_location(message):
-    if message.chat.id != ALLOWED_CHAT_ID:
-        return
-
-    text_input = message.text.strip()
-
-    if not text_input.startswith("http://") and not text_input.startswith("https://"):
-        maps_url = f"https://www.google.com/maps/search/?api=1&query={text_input.replace(' ', '+')}"
+    if poster_path:
+        image_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
+        await update.message.reply_photo(photo=image_url, caption=caption, parse_mode="Markdown", reply_markup=reply_markup)
     else:
-        maps_url = text_input
+        await update.message.reply_text(caption, parse_mode="Markdown", reply_markup=reply_markup, disable_web_page_preview=True)
 
-    generate_and_send_qr(message, maps_url, f"📌 **Location Link:**\n`{text_input}`")
+def main():
+    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("movie", search_movie))
+    app.add_handler(CallbackQueryHandler(verify_callback, pattern="^check_follow$"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, generate_qr))
 
-def generate_and_send_qr(message, data_to_encode, caption_text):
-    status_msg = bot.reply_to(message, "⏳ Location ka QR Code generate ho raha hai...")
-
-    try:
-        qr = qrcode.QRCode(
-            version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_L,
-            box_size=10,
-            border=4,
-        )
-        qr.add_data(data_to_encode)
-        qr.make(fit=True)
-
-        img = qr.make_image(fill_color="black", back_color="white")
-        file_path = f"loc_qr_{message.chat.id}.png"
-        img.save(file_path)
-
-        with open(file_path, 'rb') as photo:
-            bot.send_photo(
-                chat_id=message.chat.id,
-                photo=photo,
-                caption=(
-                    f"✅ **Location QR Code Ready!**\n\n"
-                    f"{caption_text}\n\n"
-                    f"✨ *Bot Created by: {DEVELOPER_NAME}*"
-                ),
-                parse_mode="Markdown"
-            )
-
-        bot.delete_message(chat_id=message.chat.id, message_id=status_msg.message_id)
-        if os.path.exists(file_path):
-            os.remove(file_path)
-
-    except Exception as e:
-        bot.reply_to(message, f"❌ Error aaya: {e}")
-
+    print("Tajdar's Insta-Protected Bot Live!")
+    app.run_polling()
 
 if __name__ == "__main__":
-    print(f"🚀 Bot successfully start ho gaya hai (Developer: {DEVELOPER_NAME})...")
-    
-    while True:
-        try:
-            bot.polling(none_stop=True, interval=1, timeout=20)
-        except Exception as e:
-            print(f"⚠️ Connection error: {e}")
-            time.sleep(3)
-          
+    main()
